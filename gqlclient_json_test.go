@@ -192,3 +192,42 @@ func TestHeader(t *testing.T) {
 
 	is.Equal(resp.Value, "some data")
 }
+
+func TestResponseWithCookies(t *testing.T) {
+	is := is.New(t)
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+
+		http.SetCookie(w, &http.Cookie{
+			Name:  "cookie1",
+			Value: "value1",
+		})
+
+		_, err := io.WriteString(w, `{"data":{"value":"some data"}}`)
+		is.NoErr(err)
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	client := NewClient(srv.URL)
+
+	req := NewRequest("query {}")
+
+	var resp struct {
+		Value string
+	}
+	res, err := client.Run(ctx, req, &resp)
+	is.NoErr(err)
+	is.Equal(calls, 1)
+
+	is.Equal(resp.Value, "some data")
+
+	cookies := res.Cookies()
+	is.Equal(len(cookies), 1)
+	is.Equal(cookies[0].Name, "cookie1")
+	is.Equal(cookies[0].Value, "value1")
+
+}
