@@ -93,14 +93,14 @@ func (c *Client) logf(format string, args ...interface{}) {
 // Pass in a nil response object to skip response parsing.
 // If the request fails or the server returns an error, the first error
 // will be returned.
-func (c *Client) Run(ctx context.Context, req *Request, resp interface{}) error {
+func (c *Client) Run(ctx context.Context, req *Request, resp interface{}) (*http.Response, error) {
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	default:
 	}
 	if len(req.files) > 0 && !c.useMultipartForm {
-		return errors.New("cannot send files with PostFields option")
+		return nil, errors.New("cannot send files with PostFields option")
 	}
 	if c.useMultipartForm {
 		return c.runWithPostFields(ctx, req, resp)
@@ -108,7 +108,8 @@ func (c *Client) Run(ctx context.Context, req *Request, resp interface{}) error 
 	return c.runWithJSON(ctx, req, resp)
 }
 
-func (c *Client) runWithJSON(ctx context.Context, req *Request, resp interface{}) error {
+func (c *Client) runWithJSON(ctx context.Context, req *Request, resp interface{}) (*http.Response, error) {
+	// Build the request body
 	var requestBody bytes.Buffer
 	requestBodyObj := struct {
 		Query     string                 `json:"query"`
@@ -118,18 +119,22 @@ func (c *Client) runWithJSON(ctx context.Context, req *Request, resp interface{}
 		Variables: req.variables,
 	}
 	if err := json.NewEncoder(&requestBody).Encode(requestBodyObj); err != nil {
-		return errors.Wrap(err, "encode body")
+		return nil, errors.Wrap(err, "encode body")
 	}
 	c.logf(">> variables: %v", req.variables)
 	c.logf(">> query: %s", req.query)
+
+	// Build the request
 	gr := &graphResponse{
 		Data: resp,
 	}
 	r, err := http.NewRequest(http.MethodPost, c.endpoint, &requestBody)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	r.Close = c.closeReq
+
+	// Set the headers
 	r.Header.Set("Content-Type", "application/json; charset=utf-8")
 	r.Header.Set("Accept", "application/json; charset=utf-8")
 	for key, values := range req.Header {
@@ -138,69 +143,80 @@ func (c *Client) runWithJSON(ctx context.Context, req *Request, resp interface{}
 		}
 	}
 	c.logf(">> headers: %v", r.Header)
+
+	// Send the request
 	r = r.WithContext(ctx)
 	res, err := c.httpClient.Do(r)
 	if err != nil {
-		return err
+		return res, err
 	}
 	defer res.Body.Close()
+
+	// Read the response
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, res.Body); err != nil {
-		return errors.Wrap(err, "reading body")
+		return res, errors.Wrap(err, "reading body")
 	}
 	c.logf("<< %s", buf.String())
 	if err := json.NewDecoder(&buf).Decode(&gr); err != nil {
 		if res.StatusCode != http.StatusOK {
-			return fmt.Errorf("graphql: server returned a non-200 status code: %v", res.StatusCode)
+			return res, fmt.Errorf("graphql: server returned a non-200 status code: %v", res.StatusCode)
 		}
-		return errors.Wrap(err, "decoding response")
+		return res, errors.Wrap(err, "decoding response")
 	}
 	if len(gr.Errors) > 0 {
-		// return first error
-		return gr.Errors[0]
+		// return first error for now
+		return res, gr.Errors[0]
 	}
-	return nil
+	return res, nil
 }
 
-func (c *Client) runWithPostFields(ctx context.Context, req *Request, resp interface{}) error {
+func (c *Client) runWithPostFields(ctx context.Context, req *Request, resp interface{}) (*http.Response, error) {
+	// Build the multipart request body
 	var requestBody bytes.Buffer
 	writer := multipart.NewWriter(&requestBody)
 	if err := writer.WriteField("query", req.query); err != nil {
-		return errors.Wrap(err, "write query field")
+		return nil, errors.Wrap(err, "write query field")
 	}
 	var variablesBuf bytes.Buffer
 	if len(req.variables) > 0 {
 		variablesField, err := writer.CreateFormField("variables")
 		if err != nil {
-			return errors.Wrap(err, "create variables field")
+			return nil, errors.Wrap(err, "create variables field")
 		}
 		if err := json.NewEncoder(io.MultiWriter(variablesField, &variablesBuf)).Encode(req.variables); err != nil {
-			return errors.Wrap(err, "encode variables")
+			return nil, errors.Wrap(err, "encode variables")
 		}
 	}
+
+	// Add files
 	for i := range req.files {
 		part, err := writer.CreateFormFile(req.files[i].Field, req.files[i].Name)
 		if err != nil {
-			return errors.Wrap(err, "create form file")
+			return nil, errors.Wrap(err, "create form file")
 		}
 		if _, err := io.Copy(part, req.files[i].R); err != nil {
-			return errors.Wrap(err, "preparing file")
+			return nil, errors.Wrap(err, "preparing file")
 		}
 	}
 	if err := writer.Close(); err != nil {
-		return errors.Wrap(err, "close writer")
+		return nil, errors.Wrap(err, "close writer")
 	}
 	c.logf(">> variables: %s", variablesBuf.String())
 	c.logf(">> files: %d", len(req.files))
 	c.logf(">> query: %s", req.query)
+
+	// Build the request
 	gr := &graphResponse{
 		Data: resp,
 	}
 	r, err := http.NewRequest(http.MethodPost, c.endpoint, &requestBody)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	r.Close = c.closeReq
+
+	// Set the headers
 	r.Header.Set("Content-Type", writer.FormDataContentType())
 	r.Header.Set("Accept", "application/json; charset=utf-8")
 	for key, values := range req.Header {
@@ -209,28 +225,32 @@ func (c *Client) runWithPostFields(ctx context.Context, req *Request, resp inter
 		}
 	}
 	c.logf(">> headers: %v", r.Header)
+
+	// Send the request
 	r = r.WithContext(ctx)
 	res, err := c.httpClient.Do(r)
 	if err != nil {
-		return err
+		return res, err
 	}
 	defer res.Body.Close()
+
+	// Read the response
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, res.Body); err != nil {
-		return errors.Wrap(err, "reading body")
+		return res, errors.Wrap(err, "reading body")
 	}
 	c.logf("<< %s", buf.String())
 	if err := json.NewDecoder(&buf).Decode(&gr); err != nil {
 		if res.StatusCode != http.StatusOK {
-			return fmt.Errorf("graphql: server returned a non-200 status code: %v", res.StatusCode)
+			return res, fmt.Errorf("graphql: server returned a non-200 status code: %v", res.StatusCode)
 		}
-		return errors.Wrap(err, "decoding response")
+		return res, errors.Wrap(err, "decoding response")
 	}
 	if len(gr.Errors) > 0 {
-		// return first error
-		return gr.Errors[0]
+		// return first error for now
+		return res, gr.Errors[0]
 	}
-	return nil
+	return res, nil
 }
 
 // WithHTTPClient specifies the underlying http.Client to use when
