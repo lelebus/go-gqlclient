@@ -27,7 +27,11 @@ $ go get github.com/lelebus/go-gqlclient
 
 ```go
 // create a client (safe to share across requests)
-client := gqlclient.NewClient("https://machinebox.io/graphql")
+client := gqlclient.NewClient("http://localhost:4000/graphql")
+
+// to specify your own http.Client, use the WithHTTPClient option:
+customHttpClient := &http.Client{}
+customClient := gqlclient.NewClient("http://localhost:4000/graphql", gqlclient.WithHTTPClient(customHttpClient))
 
 // make a request
 req := gqlclient.NewRequest(`
@@ -55,14 +59,14 @@ req := gqlclient.NewRequest(`
 
 
 // run it and capture the response
-var respData map[string]interface{}
-if err := client.Run(ctx, req, &respData); err != nil {
+var responseData map[string]interface{}
+res, err := client.Run(ctx, req, &responseData)
+if err != nil {
     log.Fatal(err)
 }
 
-// To specify your own http.Client, use the WithHTTPClient option:
-httpclient := &http.Client{}
-client := gqlclient.NewClient("https://localhost:4000/graphql", gqlclient.WithHTTPClient(httpclient))
+// read the cookies in the response
+cookies := res.Cookies()
 ```
 
 ### File support via multipart form data
@@ -71,7 +75,7 @@ By default, the package will send a JSON body. To enable the sending of files, y
 use multipart form data instead using the `UseMultipartForm` option when you create your `Client`:
 
 ```
-client := graphql.NewClient("http://localhost:4000/graphql", graphql.UseMultipartForm())
+client := gqlclient.NewClient("http://localhost:4000/graphql", gqlclient.UseMultipartForm())
 ```
 
 For more information, [read the godoc package documentation](http://godoc.org/github.com/machinebox/graphql)

@@ -1,7 +1,11 @@
 // Package gqlclient provides a low level GraphQL client.
 //
 //	// create a client (safe to share across requests)
-//	client := gqlclient.NewClient("https://machinebox.io/graphql")
+//	client := gqlclient.NewClient("http://localhost:4000/graphql")
+//
+//	// to specify your own http.Client, use the WithHTTPClient option:
+//	customHttpClient := &http.Client{}
+//	customClient := gqlclient.NewClient("http://localhost:4000/graphql", gqlclient.WithHTTPClient(customHttpClient))
 //
 //	// make a request
 //	req := gqlclient.NewRequest(`
@@ -27,19 +31,15 @@
 //	    "key": "value",
 //	})
 //
-//
 //	// run it and capture the response
-//	var respData ResponseStruct
-//	if err := client.Run(ctx, req, &respData); err != nil {
+//	var responseData map[string]interface{}
+//	res, err := client.Run(ctx, req, &responseData)
+//	if err != nil {
 //	    log.Fatal(err)
 //	}
 //
-// # Specify client
-//
-// To specify your own http.Client, use the WithHTTPClient option:
-//
-//	httpclient := &http.Client{}
-//	client := gqlclient.NewClient("https://localhost:4000/graphql", gqlclient.WithHTTPClient(httpclient))
+//	// read the cookies in the response
+//	cookies := res.Cookies()
 package gqlclient
 
 import (
@@ -69,7 +69,7 @@ type Client struct {
 	Log func(s string)
 }
 
-// NewClient makes a new Client capable of making GraphQL requests.
+// NewClient makes a new Client, optimized for GraphQL requests.
 func NewClient(endpoint string, opts ...ClientOption) *Client {
 	c := &Client{
 		endpoint: endpoint,
@@ -91,7 +91,7 @@ func (c *Client) logf(format string, args ...interface{}) {
 // Run executes the query and unmarshals the response from the data field
 // into the response object.
 // Pass in a nil response object to skip response parsing.
-// If the request fails or the server returns an error, the first error
+// If the request fails or the server returns multiple errors, the first error
 // will be returned.
 func (c *Client) Run(ctx context.Context, req *Request, resp interface{}) (*http.Response, error) {
 	select {
@@ -295,7 +295,7 @@ type graphResponse struct {
 	Errors []graphErr
 }
 
-// Request is a GraphQL request.
+// Request is a GraphQL request struct.
 type Request struct {
 	query     string
 	variables map[string]interface{}
@@ -306,7 +306,7 @@ type Request struct {
 	Header http.Header
 }
 
-// NewRequest makes a new Request with the specified string.
+// NewRequest makes a new Request with the specified string as query.
 func NewRequest(query string) *Request {
 	req := &Request{
 		query:  query,
@@ -315,7 +315,7 @@ func NewRequest(query string) *Request {
 	return req
 }
 
-// WithVars add variables for this Request.
+// WithVars adds variables for a Request.
 //
 //	// Add the variable `username` with value `lelebus`
 //	req.WithVars(map[string]interface{}{ "username": "lelebus" })
@@ -330,6 +330,8 @@ func (req *Request) WithVars(variables map[string]interface{}) *Request {
 // File sets a file to upload.
 // Files are only supported with a Client that was created with
 // the UseMultipartForm option.
+// 
+//	client := gqlclient.NewClient(URL, gqlclient.UseMultipartForm())
 func (req *Request) File(fieldname, filename string, r io.Reader) {
 	req.files = append(req.files, File{
 		Field: fieldname,
