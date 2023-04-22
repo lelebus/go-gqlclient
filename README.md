@@ -1,4 +1,4 @@
-# gqlclient [![GoDoc](https://godoc.org/github.com/machinebox/graphql?status.png)](http://godoc.org/github.com/machinebox/graphql)
+# gqlclient [![GoDoc](https://godoc.org/github.com/lelebus/go-gqlclient?status.png)](https://godoc.org/github.com/lelebus/go-gqlclient)
 
 Low-level GraphQL client for Go, specifically thought for testing of GraphQL services.
 
@@ -78,7 +78,7 @@ use multipart form data instead using the `UseMultipartForm` option when you cre
 client := gqlclient.NewClient("http://localhost:4000/graphql", gqlclient.UseMultipartForm())
 ```
 
-For more information, [read the godoc package documentation](http://godoc.org/github.com/machinebox/graphql)
+For more information, [read the godoc package documentation](https://godoc.org/github.com/lelebus/go-gqlclient)
 
 ## Credits
 
